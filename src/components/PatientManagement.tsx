@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 interface Medication {
@@ -10,6 +10,7 @@ interface Medication {
   frequency: string;
   duration: string;
   notes: string;
+  type: 'Ayurvedic' | 'Unani' | 'Siddha' | 'Homeopathic' | 'Other';
 }
 
 interface Patient {
@@ -42,14 +43,15 @@ const PatientManagement: React.FC = () => {
     dosage: '',
     frequency: '',
     duration: '',
-    notes: ''
+    notes: '',
+    type: 'Ayurvedic'
   });
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     const savedPatients = localStorage.getItem('patients');
     if (savedPatients) {
       const parsedPatients = JSON.parse(savedPatients);
-      // Ensure all patients have medications array
       const patientsWithMedications = parsedPatients.map((patient: Patient) => ({
         ...patient,
         medications: patient.medications || []
@@ -91,6 +93,7 @@ const PatientManagement: React.FC = () => {
       nextVisitDate: '',
       medications: []
     });
+    setShowAddForm(false);
   };
 
   const deletePatient = (patientId: string) => {
@@ -132,10 +135,12 @@ const PatientManagement: React.FC = () => {
       medications: patient.medications || []
     });
     setEditingId(patient.id);
+    setShowAddForm(true);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
+    setShowAddForm(false);
     setNewPatient({
       id: '',
       name: '',
@@ -181,7 +186,8 @@ const PatientManagement: React.FC = () => {
       dosage: '',
       frequency: '',
       duration: '',
-      notes: ''
+      notes: '',
+      type: 'Ayurvedic'
     });
   };
 
@@ -207,13 +213,30 @@ const PatientManagement: React.FC = () => {
     doc.setFontSize(16);
     doc.text("Patient List", 20, 20);
 
-    const headers = [["#", "Name", "Mobile", "Place", "Visited Date", "Next Visit"]];
-    const data = patients.map((p, i) => [i + 1, p.name, p.mobile, p.place, p.visitedDate, p.nextVisitDate]);
+    const headers = [["#", "Name", "Mobile", "Place", "Visit Date", "Next Visit"]];
+    const data = patients.map((p, i) => [
+      i + 1,
+      p.name,
+      p.mobile,
+      p.place,
+      p.visitedDate,
+      p.nextVisitDate || 'Not set'
+    ]);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 30,
       head: headers,
-      body: data
+      body: data,
+      theme: 'grid',
+      styles: {
+        fontSize: 10,
+        cellPadding: 3,
+      },
+      headStyles: {
+        fillColor: [40, 167, 69],
+        textColor: 255,
+        fontStyle: 'bold',
+      },
     });
 
     doc.save("patients.pdf");
@@ -225,150 +248,159 @@ const PatientManagement: React.FC = () => {
   );
 
   return (
-    <div className="container my-5">
-      <div className="text-center mb-4">
-        <h2 className="fw-bold">🩺 Patient Management System</h2>
-      </div>
-
-      <div className="card p-4 mb-4">
-        <h4>{editingId ? 'Edit Patient' : 'Add New Patient'}</h4>
-        <div className="row g-3">
-          <div className="col-md-3">
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Name"
-              value={newPatient.name}
-              onChange={(e) => setNewPatient({...newPatient, name: e.target.value})}
-              required
-            />
-          </div>
-          <div className="col-md-3">
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Mobile Number"
-              value={newPatient.mobile}
-              onChange={(e) => setNewPatient({...newPatient, mobile: e.target.value})}
-              required
-            />
-          </div>
-          <div className="col-md-3">
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Place"
-              value={newPatient.place}
-              onChange={(e) => setNewPatient({...newPatient, place: e.target.value})}
-              required
-            />
-          </div>
-          <div className="col-md-3">
-            <input
-              type="date"
-              className="form-control"
-              value={newPatient.visitedDate}
-              onChange={(e) => setNewPatient({...newPatient, visitedDate: e.target.value})}
-              required
-            />
-          </div>
-          <div className="col-12 text-end">
-            {editingId && (
-              <button className="btn btn-secondary me-2" onClick={cancelEdit}>
-                Cancel
-              </button>
-            )}
-            <button className="btn btn-success" onClick={addPatient}>
-              {editingId ? 'Update Patient' : '➕ Add Patient'}
-            </button>
-          </div>
+    <div className="container-fluid p-0">
+      {/* Header */}
+      <div className="bg-success text-white p-3 sticky-top">
+        <div className="d-flex justify-content-between align-items-center">
+          <h4 className="mb-0">🌿 AYUSH Clinic</h4>
+          <button 
+            className="btn btn-light btn-sm"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            {showAddForm ? '✕ Close' : '➕ Add Patient'}
+          </button>
         </div>
       </div>
 
-      <div className="card p-4 mb-4">
-        <h4>Search Patient</h4>
+      {/* Search Bar */}
+      <div className="p-3 bg-light">
         <input
           type="text"
           className="form-control"
-          placeholder="Search by name or mobile number"
+          placeholder="🔍 Search patients..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      <div className="card p-4">
-        <div className="d-flex justify-content-between align-items-center mb-2">
-          <h4 className="mb-0">Patient List</h4>
-          <button className="btn btn-primary btn-sm" onClick={downloadPDF}>⬇️ Download PDF</button>
+      {/* Add/Edit Patient Form */}
+      {showAddForm && (
+        <div className="p-3 bg-white border-bottom">
+          <h5 className="mb-3">{editingId ? 'Edit Patient' : 'Add New Patient'}</h5>
+          <div className="row g-2">
+            <div className="col-12">
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Patient Name"
+                value={newPatient.name}
+                onChange={(e) => setNewPatient({...newPatient, name: e.target.value})}
+                required
+              />
+            </div>
+            <div className="col-12">
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Mobile Number"
+                value={newPatient.mobile}
+                onChange={(e) => setNewPatient({...newPatient, mobile: e.target.value})}
+                required
+              />
+            </div>
+            <div className="col-12">
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Place"
+                value={newPatient.place}
+                onChange={(e) => setNewPatient({...newPatient, place: e.target.value})}
+                required
+              />
+            </div>
+            <div className="col-12">
+              <input
+                type="date"
+                className="form-control"
+                value={newPatient.visitedDate}
+                onChange={(e) => setNewPatient({...newPatient, visitedDate: e.target.value})}
+                required
+              />
+            </div>
+            <div className="col-12 d-flex gap-2">
+              {editingId && (
+                <button className="btn btn-secondary flex-grow-1" onClick={cancelEdit}>
+                  Cancel
+                </button>
+              )}
+              <button className="btn btn-success flex-grow-1" onClick={addPatient}>
+                {editingId ? 'Update' : 'Save'}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="table-responsive">
-          <table className="table table-striped table-bordered align-middle">
-            <thead className="table-dark">
-              <tr>
-                <th>#</th>
-                <th>Name</th>
-                <th>Mobile</th>
-                <th>Place</th>
-                <th>Visited Date</th>
-                <th>Next Visit</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPatients.map((patient, index) => (
-                <tr key={patient.id}>
-                  <td>{index + 1}</td>
-                  <td>
-                    <button 
-                      className="btn btn-link p-0 text-decoration-none"
-                      onClick={() => handlePatientClick(patient)}
-                    >
-                      {patient.name}
-                    </button>
-                  </td>
-                  <td>{patient.mobile}</td>
-                  <td>{patient.place}</td>
-                  <td>{patient.visitedDate}</td>
-                  <td>{patient.nextVisitDate}</td>
-                  <td>
-                    <div className="btn-group">
-                      <button 
-                        className="btn btn-warning btn-sm"
-                        onClick={() => editPatient(patient)}
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button 
-                        className="btn btn-danger btn-sm"
-                        onClick={() => deletePatient(patient.id)}
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      )}
+
+      {/* Patient List */}
+      <div className="list-group list-group-flush">
+        {filteredPatients.map((patient, index) => (
+          <div key={patient.id} className="list-group-item">
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <h6 className="mb-1">{patient.name}</h6>
+                <small className="text-muted">
+                  📱 {patient.mobile} | 📍 {patient.place}
+                </small>
+                <br />
+                <small className="text-muted">
+                  🏥 Visit: {patient.visitedDate} | 📅 Next: {patient.nextVisitDate || 'Not set'}
+                </small>
+              </div>
+              <div className="d-flex gap-2">
+                <button 
+                  className="btn btn-outline-success btn-sm"
+                  onClick={() => handlePatientClick(patient)}
+                >
+                  👁️ View
+                </button>
+                <button 
+                  className="btn btn-outline-warning btn-sm"
+                  onClick={() => editPatient(patient)}
+                >
+                  ✏️ Edit
+                </button>
+                <button 
+                  className="btn btn-outline-danger btn-sm"
+                  onClick={() => deletePatient(patient.id)}
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Patient Details Modal */}
       {selectedPatient && (
         <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg">
+          <div className="modal-dialog modal-fullscreen-sm-down">
             <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Patient Details - {selectedPatient.name}</h5>
+              <div className="modal-header bg-success text-white">
+                <h5 className="modal-title">{selectedPatient.name}</h5>
                 <button 
                   type="button" 
-                  className="btn-close" 
+                  className="btn-close btn-close-white" 
                   onClick={() => setSelectedPatient(null)}
                 ></button>
               </div>
               <div className="modal-body">
+                {/* Treatment Details */}
                 <div className="mb-4">
-                  <h6>Next Visit Date</h6>
+                  <h6>Patient Details</h6>
+                  <div className="card">
+                    <div className="card-body">
+                      <p><strong>Name:</strong> {selectedPatient.name}</p>
+                      <p><strong>Mobile:</strong> {selectedPatient.mobile}</p>
+                      <p><strong>Place:</strong> {selectedPatient.place}</p>
+                      <p><strong>Visit Date:</strong> {selectedPatient.visitedDate}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next Visit Date */}
+                <div className="mb-4">
+                  <label className="form-label">Next Visit Date</label>
                   <input
                     type="date"
                     className="form-control"
@@ -377,10 +409,11 @@ const PatientManagement: React.FC = () => {
                   />
                 </div>
 
+                {/* Add Medication Form */}
                 <div className="mb-4">
                   <h6>Add Medication</h6>
-                  <div className="row g-3">
-                    <div className="col-md-4">
+                  <div className="row g-2">
+                    <div className="col-12">
                       <input
                         type="text"
                         className="form-control"
@@ -390,7 +423,20 @@ const PatientManagement: React.FC = () => {
                         required
                       />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-12">
+                      <select
+                        className="form-select"
+                        value={newMedication.type}
+                        onChange={(e) => setNewMedication({...newMedication, type: e.target.value as Medication['type']})}
+                      >
+                        <option value="Ayurvedic">Ayurvedic</option>
+                        <option value="Unani">Unani</option>
+                        <option value="Siddha">Siddha</option>
+                        <option value="Homeopathic">Homeopathic</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div className="col-12">
                       <input
                         type="text"
                         className="form-control"
@@ -400,7 +446,7 @@ const PatientManagement: React.FC = () => {
                         required
                       />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-12">
                       <input
                         type="text"
                         className="form-control"
@@ -410,7 +456,7 @@ const PatientManagement: React.FC = () => {
                         required
                       />
                     </div>
-                    <div className="col-md-4">
+                    <div className="col-12">
                       <input
                         type="text"
                         className="form-control"
@@ -419,7 +465,7 @@ const PatientManagement: React.FC = () => {
                         onChange={(e) => setNewMedication({...newMedication, duration: e.target.value})}
                       />
                     </div>
-                    <div className="col-md-8">
+                    <div className="col-12">
                       <input
                         type="text"
                         className="form-control"
@@ -428,48 +474,55 @@ const PatientManagement: React.FC = () => {
                         onChange={(e) => setNewMedication({...newMedication, notes: e.target.value})}
                       />
                     </div>
-                    <div className="col-12 text-end">
-                      <button className="btn btn-primary" onClick={addMedication}>
+                    <div className="col-12">
+                      <button className="btn btn-success w-100" onClick={addMedication}>
                         Add Medication
                       </button>
                     </div>
                   </div>
                 </div>
 
+                {/* Medications List */}
                 <div>
                   <h6>Current Medications</h6>
-                  <div className="table-responsive">
-                    <table className="table table-bordered">
-                      <thead className="table-light">
-                        <tr>
-                          <th>Medication</th>
-                          <th>Dosage</th>
-                          <th>Frequency</th>
-                          <th>Duration</th>
-                          <th>Notes</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(selectedPatient.medications || []).map((med) => (
-                          <tr key={med.id}>
-                            <td>{med.name}</td>
-                            <td>{med.dosage}</td>
-                            <td>{med.frequency}</td>
-                            <td>{med.duration}</td>
-                            <td>{med.notes}</td>
-                            <td>
-                              <button 
-                                className="btn btn-danger btn-sm"
-                                onClick={() => deleteMedication(selectedPatient.id, med.id)}
-                              >
-                                🗑️ Delete
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="list-group">
+                    {(selectedPatient.medications || []).map((med) => (
+                      <div key={med.id} className="list-group-item">
+                        <div className="d-flex justify-content-between align-items-start">
+                          <div>
+                            <h6 className="mb-1">{med.name}</h6>
+                            <small className="text-muted">
+                              💊 {med.dosage} | ⏰ {med.frequency}
+                            </small>
+                            <div>
+                              <small className="text-muted">
+                                🌿 Type: {med.type}
+                              </small>
+                            </div>
+                            {med.duration && (
+                              <div>
+                                <small className="text-muted">
+                                  ⏱️ Duration: {med.duration}
+                                </small>
+                              </div>
+                            )}
+                            {med.notes && (
+                              <div>
+                                <small className="text-muted">
+                                  📝 {med.notes}
+                                </small>
+                              </div>
+                            )}
+                          </div>
+                          <button 
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => deleteMedication(selectedPatient.id, med.id)}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -477,6 +530,17 @@ const PatientManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Download PDF Button */}
+      <div className="position-fixed bottom-0 end-0 p-3">
+        <button 
+          className="btn btn-success rounded-circle shadow-lg"
+          onClick={downloadPDF}
+          style={{ width: '60px', height: '60px' }}
+        >
+          ⬇️
+        </button>
+      </div>
     </div>
   );
 };
