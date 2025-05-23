@@ -5,12 +5,8 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 
 interface Medication {
   id: string;
-  name: string;
-  dosage: string;
-  frequency: string;
-  duration: string;
-  notes: string;
-  type: 'Ayurvedic' | 'Unani' | 'Siddha' | 'Homeopathic' | 'Other';
+  description: string;
+  date: string;
 }
 
 interface Patient {
@@ -21,6 +17,14 @@ interface Patient {
   visitedDate: string;
   nextVisitDate: string;
   medications: Medication[];
+  notes: string;
+}
+
+interface BackupConfig {
+  enabled: boolean;
+  interval: number; // in minutes
+  lastBackup: number;
+  maxBackups: number;
 }
 
 const PatientManagement: React.FC = () => {
@@ -33,32 +37,79 @@ const PatientManagement: React.FC = () => {
     place: '',
     visitedDate: new Date().toISOString().split('T')[0],
     nextVisitDate: '',
-    medications: []
+    medications: [],
+    notes: ''
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [newMedication, setNewMedication] = useState<Medication>({
     id: '',
-    name: '',
-    dosage: '',
-    frequency: '',
-    duration: '',
-    notes: '',
-    type: 'Ayurvedic'
+    description: '',
+    date: new Date().toISOString().split('T')[0]
   });
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [backupConfig, setBackupConfig] = useState<BackupConfig>({
+    enabled: false,
+    interval: 60,
+    lastBackup: 0,
+    maxBackups: 5
+  });
+  const [backupHistory, setBackupHistory] = useState<{ timestamp: number; filename: string }[]>([]);
+  const [db, setDb] = useState<IDBDatabase | null>(null);
 
+  // Initialize IndexedDB
   useEffect(() => {
-    const savedPatients = localStorage.getItem('patients');
-    if (savedPatients) {
-      const parsedPatients = JSON.parse(savedPatients);
-      const patientsWithMedications = parsedPatients.map((patient: Patient) => ({
+    const request = indexedDB.open('PatientCareDB', 1);
+
+    request.onerror = (event) => {
+      console.error('Database error:', event);
+    };
+
+    request.onsuccess = (event) => {
+      const database = (event.target as IDBOpenDBRequest).result;
+      setDb(database);
+      loadPatients(database);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const database = (event.target as IDBOpenDBRequest).result;
+      if (!database.objectStoreNames.contains('patients')) {
+        database.createObjectStore('patients', { keyPath: 'id' });
+      }
+    };
+  }, []);
+
+  // Load patients from IndexedDB
+  const loadPatients = (database: IDBDatabase) => {
+    const transaction = database.transaction(['patients'], 'readonly');
+    const store = transaction.objectStore('patients');
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const patientsWithMedications = request.result.map((patient: Patient) => ({
         ...patient,
         medications: patient.medications || []
       }));
       setPatients(patientsWithMedications);
-    }
-  }, []);
+    };
+  };
+
+  // Save patients to IndexedDB
+  const savePatients = (updatedPatients: Patient[]) => {
+    if (!db) return;
+
+    const transaction = db.transaction(['patients'], 'readwrite');
+    const store = transaction.objectStore('patients');
+
+    // Clear existing data
+    store.clear();
+
+    // Add all patients
+    updatedPatients.forEach(patient => {
+      store.add(patient);
+    });
+  };
 
   const addPatient = () => {
     if (!newPatient.name || !newPatient.mobile || !newPatient.place) {
@@ -66,24 +117,23 @@ const PatientManagement: React.FC = () => {
       return;
     }
 
+    let updatedPatients: Patient[];
     if (editingId) {
-      const updatedPatients = patients.map(p => 
+      updatedPatients = patients.map(p => 
         p.id === editingId ? { ...newPatient, id: editingId, medications: p.medications || [] } : p
       );
-      setPatients(updatedPatients);
-      localStorage.setItem('patients', JSON.stringify(updatedPatients));
-      setEditingId(null);
     } else {
       const patientWithId = { 
         ...newPatient, 
         id: Date.now().toString(),
         medications: []
       };
-      const updatedPatients = [...patients, patientWithId];
-      setPatients(updatedPatients);
-      localStorage.setItem('patients', JSON.stringify(updatedPatients));
+      updatedPatients = [...patients, patientWithId];
     }
 
+    setPatients(updatedPatients);
+    savePatients(updatedPatients);
+    setEditingId(null);
     setNewPatient({
       id: '',
       name: '',
@@ -91,7 +141,8 @@ const PatientManagement: React.FC = () => {
       place: '',
       visitedDate: new Date().toISOString().split('T')[0],
       nextVisitDate: '',
-      medications: []
+      medications: [],
+      notes: ''
     });
     setShowAddForm(false);
   };
@@ -100,7 +151,7 @@ const PatientManagement: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this patient?')) {
       const updatedPatients = patients.filter(p => p.id !== patientId);
       setPatients(updatedPatients);
-      localStorage.setItem('patients', JSON.stringify(updatedPatients));
+      savePatients(updatedPatients);
       if (selectedPatient?.id === patientId) {
         setSelectedPatient(null);
       }
@@ -119,7 +170,7 @@ const PatientManagement: React.FC = () => {
         return p;
       });
       setPatients(updatedPatients);
-      localStorage.setItem('patients', JSON.stringify(updatedPatients));
+      savePatients(updatedPatients);
       if (selectedPatient?.id === patientId) {
         setSelectedPatient({
           ...selectedPatient,
@@ -148,7 +199,8 @@ const PatientManagement: React.FC = () => {
       place: '',
       visitedDate: new Date().toISOString().split('T')[0],
       nextVisitDate: '',
-      medications: []
+      medications: [],
+      notes: ''
     });
   };
 
@@ -162,8 +214,8 @@ const PatientManagement: React.FC = () => {
   const addMedication = () => {
     if (!selectedPatient) return;
 
-    if (!newMedication.name || !newMedication.dosage || !newMedication.frequency) {
-      alert("Please fill all required medication fields.");
+    if (!newMedication.description) {
+      alert("Please enter medication description.");
       return;
     }
 
@@ -179,15 +231,11 @@ const PatientManagement: React.FC = () => {
 
     setPatients(updatedPatients);
     setSelectedPatient(updatedPatient);
-    localStorage.setItem('patients', JSON.stringify(updatedPatients));
+    savePatients(updatedPatients);
     setNewMedication({
       id: '',
-      name: '',
-      dosage: '',
-      frequency: '',
-      duration: '',
-      notes: '',
-      type: 'Ayurvedic'
+      description: '',
+      date: new Date().toISOString().split('T')[0]
     });
   };
 
@@ -205,7 +253,7 @@ const PatientManagement: React.FC = () => {
 
     setPatients(updatedPatients);
     setSelectedPatient(updatedPatient);
-    localStorage.setItem('patients', JSON.stringify(updatedPatients));
+    savePatients(updatedPatients);
   };
 
   const downloadPDF = () => {
@@ -242,6 +290,239 @@ const PatientManagement: React.FC = () => {
     doc.save("patients.pdf");
   };
 
+  const backupData = () => {
+    if (!db) return;
+
+    const transaction = db.transaction(['patients'], 'readonly');
+    const store = transaction.objectStore('patients');
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const data = request.result;
+      const timestamp = Date.now();
+      const filename = `patient-care-backup-${new Date(timestamp).toISOString().split('T')[0]}.json`;
+      
+      // Create backup file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Update backup history
+      const newHistory = [
+        { timestamp, filename },
+        ...backupHistory.slice(0, backupConfig.maxBackups - 1)
+      ];
+      setBackupHistory(newHistory);
+
+      // Update last backup time
+      setBackupConfig(prev => ({
+        ...prev,
+        lastBackup: timestamp
+      }));
+    };
+  };
+
+  const restoreData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !db) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        const transaction = db.transaction(['patients'], 'readwrite');
+        const store = transaction.objectStore('patients');
+
+        // Clear existing data
+        store.clear();
+
+        // Add restored data
+        data.forEach((patient: Patient) => {
+          store.add(patient);
+        });
+
+        // Reload patients
+        loadPatients(db);
+        alert('Data restored successfully!');
+      } catch (error) {
+        alert('Error restoring data. Please check the backup file format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Load backup configuration from localStorage
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('backupConfig');
+    if (savedConfig) {
+      setBackupConfig(JSON.parse(savedConfig));
+    }
+    const savedHistory = localStorage.getItem('backupHistory');
+    if (savedHistory) {
+      setBackupHistory(JSON.parse(savedHistory));
+    }
+  }, []);
+
+  // Save backup configuration to localStorage
+  useEffect(() => {
+    localStorage.setItem('backupConfig', JSON.stringify(backupConfig));
+    localStorage.setItem('backupHistory', JSON.stringify(backupHistory));
+  }, [backupConfig, backupHistory]);
+
+  // Automatic backup timer
+  useEffect(() => {
+    if (!backupConfig.enabled) return;
+
+    const checkAndBackup = () => {
+      const now = Date.now();
+      const timeSinceLastBackup = now - backupConfig.lastBackup;
+      const intervalInMs = backupConfig.interval * 60 * 1000;
+
+      if (timeSinceLastBackup >= intervalInMs) {
+        performAutomaticBackup();
+      }
+    };
+
+    const timer = setInterval(checkAndBackup, 60000); // Check every minute
+    return () => clearInterval(timer);
+  }, [backupConfig]);
+
+  const performAutomaticBackup = () => {
+    if (!db) return;
+
+    const transaction = db.transaction(['patients'], 'readonly');
+    const store = transaction.objectStore('patients');
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const data = request.result;
+      const timestamp = Date.now();
+      const filename = `patient-care-backup-${new Date(timestamp).toISOString().split('T')[0]}.json`;
+      
+      // Create backup file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Update backup history
+      const newHistory = [
+        { timestamp, filename },
+        ...backupHistory.slice(0, backupConfig.maxBackups - 1)
+      ];
+      setBackupHistory(newHistory);
+
+      // Update last backup time
+      setBackupConfig(prev => ({
+        ...prev,
+        lastBackup: timestamp
+      }));
+    };
+  };
+
+  const toggleAutomaticBackup = () => {
+    setBackupConfig(prev => ({
+      ...prev,
+      enabled: !prev.enabled,
+      lastBackup: !prev.enabled ? Date.now() : prev.lastBackup
+    }));
+  };
+
+  const updateBackupInterval = (minutes: number) => {
+    setBackupConfig(prev => ({
+      ...prev,
+      interval: minutes
+    }));
+  };
+
+  const downloadPatientDetails = (patient: Patient) => {
+    const doc = new jsPDF();
+    
+    // Title
+    doc.setFontSize(20);
+    doc.text("Patient Details", 20, 20);
+    
+    // Patient Information
+    doc.setFontSize(12);
+    doc.text(`Name: ${patient.name}`, 20, 40);
+    doc.text(`Mobile: ${patient.mobile}`, 20, 50);
+    doc.text(`Place: ${patient.place}`, 20, 60);
+    doc.text(`Visit Date: ${patient.visitedDate}`, 20, 70);
+    doc.text(`Next Visit: ${patient.nextVisitDate || 'Not set'}`, 20, 80);
+    
+    if (patient.notes) {
+      doc.text(`Notes: ${patient.notes}`, 20, 90);
+    }
+
+    // Medications
+    if (patient.medications && patient.medications.length > 0) {
+      doc.setFontSize(16);
+      doc.text("Medications", 20, patient.notes ? 110 : 100);
+      
+      const medications = patient.medications.map((med, index) => [
+        index + 1,
+        med.date,
+        med.description
+      ]);
+
+      autoTable(doc, {
+        startY: patient.notes ? 120 : 110,
+        head: [['#', 'Date', 'Description']],
+        body: medications,
+        theme: 'grid',
+        styles: {
+          fontSize: 10,
+          cellPadding: 3,
+        },
+        headStyles: {
+          fillColor: [40, 167, 69],
+          textColor: 255,
+          fontStyle: 'bold',
+        },
+      });
+    }
+
+    // Save the PDF
+    doc.save(`patient-${patient.name}-${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  // Add share function for individual patient
+  const sharePatientData = async (patient: Patient) => {
+    try {
+      const shareData = {
+        title: `Patient Details - ${patient.name}`,
+        text: `Patient Details:\nName: ${patient.name}\nMobile: ${patient.mobile}\nPlace: ${patient.place}\nVisit Date: ${patient.visitedDate}\nNext Visit: ${patient.nextVisitDate || 'Not set'}\n\nMedications:\n${patient.medications.map(med => `- ${med.date}: ${med.description}`).join('\n')}`,
+        url: window.location.href
+      };
+
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        // Fallback for browsers that don't support Web Share API
+        const textArea = document.createElement('textarea');
+        textArea.value = shareData.text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('Patient details copied to clipboard!');
+      }
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
   const filteredPatients = patients.filter(p => 
     p.name.toLowerCase().includes(search.toLowerCase()) || 
     p.mobile.includes(search)
@@ -252,14 +533,196 @@ const PatientManagement: React.FC = () => {
       {/* Header */}
       <div className="bg-success text-white p-3 sticky-top">
         <div className="d-flex justify-content-between align-items-center">
-          <h4 className="mb-0">🌿 AYUSH Clinic</h4>
-          <button 
-            className="btn btn-light btn-sm"
-            onClick={() => setShowAddForm(!showAddForm)}
-          >
-            {showAddForm ? '✕ Close' : '➕ Add Patient'}
-          </button>
+          <div>
+            <h4 className="mb-0">🌿 AYUSH Clinic</h4>
+          </div>
+          
+          {/* Desktop Menu */}
+          <div className="d-none d-md-flex gap-2">
+            <div className="dropdown">
+              <button 
+                className="btn btn-light btn-sm dropdown-toggle"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
+                ⚙️ Backup Settings
+              </button>
+              <div className="dropdown-menu p-3" style={{ width: '300px' }}>
+                <div className="form-check form-switch mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={backupConfig.enabled}
+                    onChange={toggleAutomaticBackup}
+                  />
+                  <label className="form-check-label">Enable Automatic Backups</label>
+                </div>
+                <div className="mb-2">
+                  <label className="form-label">Backup Interval (minutes)</label>
+                  <input
+                    type="number"
+                    className="form-control form-control-sm"
+                    value={backupConfig.interval}
+                    onChange={(e) => updateBackupInterval(Number(e.target.value))}
+                    min="1"
+                    max="1440"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="form-label">Maximum Backups to Keep</label>
+                  <input
+                    type="number"
+                    className="form-control form-control-sm"
+                    value={backupConfig.maxBackups}
+                    onChange={(e) => setBackupConfig(prev => ({
+                      ...prev,
+                      maxBackups: Number(e.target.value)
+                    }))}
+                    min="1"
+                    max="10"
+                  />
+                </div>
+                <div className="mb-2">
+                  <label className="form-label">Last Backup</label>
+                  <div className="small">
+                    {backupConfig.lastBackup 
+                      ? new Date(backupConfig.lastBackup).toLocaleString()
+                      : 'Never'}
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <label className="form-label">Backup History</label>
+                  <div className="small" style={{ maxHeight: '100px', overflowY: 'auto' }}>
+                    {backupHistory.map((backup, index) => (
+                      <div key={index} className="mb-1">
+                        {new Date(backup.timestamp).toLocaleString()}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button 
+              className="btn btn-light btn-sm"
+              onClick={backupData}
+            >
+              💾 Backup Now
+            </button>
+            <label className="btn btn-light btn-sm mb-0">
+              📂 Restore
+              <input
+                type="file"
+                accept=".json"
+                onChange={restoreData}
+                style={{ display: 'none' }}
+              />
+            </label>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <div className="d-flex d-md-none gap-2">
+            <button 
+              className="btn btn-light btn-sm"
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+            >
+              ☰
+            </button>
+            <button 
+              className="btn btn-light btn-sm"
+              onClick={() => setShowAddForm(!showAddForm)}
+            >
+              ➕
+            </button>
+          </div>
         </div>
+
+        {/* Mobile Menu */}
+        {showMobileMenu && (
+          <div className="d-md-none mt-3 p-2 bg-white rounded">
+            <div className="d-flex flex-column gap-2">
+              <div className="dropdown">
+                <button 
+                  className="btn btn-success btn-sm w-100 text-start"
+                  type="button"
+                  data-bs-toggle="dropdown"
+                  aria-expanded="false"
+                >
+                  ⚙️ Backup Settings
+                </button>
+                <div className="dropdown-menu p-3 w-100">
+                  <div className="form-check form-switch mb-2">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      checked={backupConfig.enabled}
+                      onChange={toggleAutomaticBackup}
+                    />
+                    <label className="form-check-label">Enable Automatic Backups</label>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label">Backup Interval (minutes)</label>
+                    <input
+                      type="number"
+                      className="form-control form-control-sm"
+                      value={backupConfig.interval}
+                      onChange={(e) => updateBackupInterval(Number(e.target.value))}
+                      min="1"
+                      max="1440"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label">Maximum Backups to Keep</label>
+                    <input
+                      type="number"
+                      className="form-control form-control-sm"
+                      value={backupConfig.maxBackups}
+                      onChange={(e) => setBackupConfig(prev => ({
+                        ...prev,
+                        maxBackups: Number(e.target.value)
+                      }))}
+                      min="1"
+                      max="10"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label">Last Backup</label>
+                    <div className="small">
+                      {backupConfig.lastBackup 
+                        ? new Date(backupConfig.lastBackup).toLocaleString()
+                        : 'Never'}
+                    </div>
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label">Backup History</label>
+                    <div className="small" style={{ maxHeight: '100px', overflowY: 'auto' }}>
+                      {backupHistory.map((backup, index) => (
+                        <div key={index} className="mb-1">
+                          {new Date(backup.timestamp).toLocaleString()}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button 
+                className="btn btn-success btn-sm w-100 text-start"
+                onClick={backupData}
+              >
+                💾 Backup Now
+              </button>
+              <label className="btn btn-success btn-sm w-100 text-start mb-0">
+                📂 Restore
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={restoreData}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -317,6 +780,15 @@ const PatientManagement: React.FC = () => {
                 required
               />
             </div>
+            <div className="col-12">
+              <textarea
+                className="form-control"
+                placeholder="Patient Notes"
+                value={newPatient.notes}
+                onChange={(e) => setNewPatient({...newPatient, notes: e.target.value})}
+                rows={3}
+              />
+            </div>
             <div className="col-12 d-flex gap-2">
               {editingId && (
                 <button className="btn btn-secondary flex-grow-1" onClick={cancelEdit}>
@@ -345,6 +817,13 @@ const PatientManagement: React.FC = () => {
                 <small className="text-muted">
                   🏥 Visit: {patient.visitedDate} | 📅 Next: {patient.nextVisitDate || 'Not set'}
                 </small>
+                {patient.notes && (
+                  <div className="mt-1">
+                    <small className="text-muted">
+                      📝 Notes: {patient.notes}
+                    </small>
+                  </div>
+                )}
               </div>
               <div className="d-flex gap-2">
                 <button 
@@ -376,13 +855,37 @@ const PatientManagement: React.FC = () => {
         <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-fullscreen-sm-down">
             <div className="modal-content">
-              <div className="modal-header bg-success text-white">
-                <h5 className="modal-title">{selectedPatient.name}</h5>
-                <button 
-                  type="button" 
-                  className="btn-close btn-close-white" 
-                  onClick={() => setSelectedPatient(null)}
-                ></button>
+              <div className="modal-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 className="modal-title mb-0">{selectedPatient.name}</h5>
+                <div className="d-flex align-items-center gap-2">
+                  <button 
+                    className="btn btn-light btn-sm d-none d-md-block"
+                    onClick={() => sharePatientData(selectedPatient)}
+                    title="Share Patient Details"
+                  >
+                    📤 Share
+                  </button>
+                  <button 
+                    className="btn btn-light btn-sm d-md-none"
+                    onClick={() => sharePatientData(selectedPatient)}
+                    title="Share Patient Details"
+                    style={{ 
+                      width: '32px', 
+                      height: '32px',
+                      padding: '0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    📤
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn-close btn-close-white" 
+                    onClick={() => setSelectedPatient(null)}
+                  ></button>
+                </div>
               </div>
               <div className="modal-body">
                 {/* Treatment Details */}
@@ -414,64 +917,22 @@ const PatientManagement: React.FC = () => {
                   <h6>Add Medication</h6>
                   <div className="row g-2">
                     <div className="col-12">
-                      <input
-                        type="text"
+                      <textarea
                         className="form-control"
-                        placeholder="Medication Name"
-                        value={newMedication.name}
-                        onChange={(e) => setNewMedication({...newMedication, name: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="col-12">
-                      <select
-                        className="form-select"
-                        value={newMedication.type}
-                        onChange={(e) => setNewMedication({...newMedication, type: e.target.value as Medication['type']})}
-                      >
-                        <option value="Ayurvedic">Ayurvedic</option>
-                        <option value="Unani">Unani</option>
-                        <option value="Siddha">Siddha</option>
-                        <option value="Homeopathic">Homeopathic</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                    <div className="col-12">
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Dosage"
-                        value={newMedication.dosage}
-                        onChange={(e) => setNewMedication({...newMedication, dosage: e.target.value})}
+                        placeholder="Medication Description"
+                        value={newMedication.description}
+                        onChange={(e) => setNewMedication({...newMedication, description: e.target.value})}
+                        rows={3}
                         required
                       />
                     </div>
                     <div className="col-12">
                       <input
-                        type="text"
+                        type="date"
                         className="form-control"
-                        placeholder="Frequency"
-                        value={newMedication.frequency}
-                        onChange={(e) => setNewMedication({...newMedication, frequency: e.target.value})}
+                        value={newMedication.date}
+                        onChange={(e) => setNewMedication({...newMedication, date: e.target.value})}
                         required
-                      />
-                    </div>
-                    <div className="col-12">
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Duration"
-                        value={newMedication.duration}
-                        onChange={(e) => setNewMedication({...newMedication, duration: e.target.value})}
-                      />
-                    </div>
-                    <div className="col-12">
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Notes"
-                        value={newMedication.notes}
-                        onChange={(e) => setNewMedication({...newMedication, notes: e.target.value})}
                       />
                     </div>
                     <div className="col-12">
@@ -490,29 +951,14 @@ const PatientManagement: React.FC = () => {
                       <div key={med.id} className="list-group-item">
                         <div className="d-flex justify-content-between align-items-start">
                           <div>
-                            <h6 className="mb-1">{med.name}</h6>
-                            <small className="text-muted">
-                              💊 {med.dosage} | ⏰ {med.frequency}
-                            </small>
-                            <div>
+                            <div className="mb-1">
                               <small className="text-muted">
-                                🌿 Type: {med.type}
+                                📅 {med.date}
                               </small>
                             </div>
-                            {med.duration && (
-                              <div>
-                                <small className="text-muted">
-                                  ⏱️ Duration: {med.duration}
-                                </small>
-                              </div>
-                            )}
-                            {med.notes && (
-                              <div>
-                                <small className="text-muted">
-                                  📝 {med.notes}
-                                </small>
-                              </div>
-                            )}
+                            <div>
+                              {med.description}
+                            </div>
                           </div>
                           <button 
                             className="btn btn-outline-danger btn-sm"
@@ -531,12 +977,23 @@ const PatientManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Download PDF Button */}
-      <div className="position-fixed bottom-0 end-0 p-3">
+      {/* Fixed Download Button */}
+      <div 
+        className="position-fixed bottom-0 end-0 p-3"
+        style={{ zIndex: 1000 }}
+      >
         <button 
           className="btn btn-success rounded-circle shadow-lg"
           onClick={downloadPDF}
-          style={{ width: '60px', height: '60px' }}
+          style={{ 
+            width: '60px', 
+            height: '60px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '24px'
+          }}
+          title="Download All Patients PDF"
         >
           ⬇️
         </button>
