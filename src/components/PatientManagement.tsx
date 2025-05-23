@@ -391,7 +391,7 @@ const PatientManagement: React.FC = () => {
 
     const timer = setInterval(checkAndBackup, 60000); // Check every minute
     return () => clearInterval(timer);
-  }, [backupConfig]);
+  }, [backupConfig, performAutomaticBackup]);
 
   const performAutomaticBackup = () => {
     if (!db) return;
@@ -879,6 +879,13 @@ const PatientManagement: React.FC = () => {
                     }}
                   >
                     📤
+                  </button>
+                  <button 
+                    className="btn btn-light btn-sm"
+                    onClick={() => downloadPatientDetails(selectedPatient)}
+                    title="Download Patient Details"
+                  >
+                    ⬇️
                   </button>
                   <button 
                     type="button" 
