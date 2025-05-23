@@ -57,6 +57,7 @@ const PatientManagement: React.FC = () => {
   });
   const [backupHistory, setBackupHistory] = useState<{ timestamp: number; filename: string }[]>([]);
   const [db, setDb] = useState<IDBDatabase | null>(null);
+  const [dateFilter, setDateFilter] = useState<string>('');
 
   // Initialize IndexedDB
   useEffect(() => {
@@ -523,10 +524,20 @@ const PatientManagement: React.FC = () => {
     }
   };
 
-  const filteredPatients = patients.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase()) || 
-    p.mobile.includes(search)
-  );
+  const filteredPatients = patients.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || 
+                         p.mobile.includes(search);
+    
+    if (!dateFilter) return matchesSearch;
+    
+    const patientNextVisit = new Date(p.nextVisitDate);
+    const filterDate = new Date(dateFilter);
+    
+    return matchesSearch && 
+           patientNextVisit.getFullYear() === filterDate.getFullYear() &&
+           patientNextVisit.getMonth() === filterDate.getMonth() &&
+           patientNextVisit.getDate() === filterDate.getDate();
+  });
 
   return (
     <div className="container-fluid p-0">
@@ -725,15 +736,41 @@ const PatientManagement: React.FC = () => {
         )}
       </div>
 
-      {/* Search Bar */}
+      {/* Search and Filter Bar */}
       <div className="p-3 bg-light">
-        <input
-          type="text"
-          className="form-control"
-          placeholder="🔍 Search patients..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="row g-2">
+          <div className="col-12 col-md-8">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="🔍 Search patients by name or mobile..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="col-12 col-md-4">
+            <input
+              type="date"
+              className="form-control"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              placeholder="Filter by next visit date"
+            />
+          </div>
+        </div>
+        {dateFilter && (
+          <div className="mt-2">
+            <button 
+              className="btn btn-outline-secondary btn-sm"
+              onClick={() => setDateFilter('')}
+            >
+              Clear Date Filter
+            </button>
+            <small className="text-muted ms-2">
+              Showing patients with next visit on {new Date(dateFilter).toLocaleDateString()}
+            </small>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Patient Form */}
