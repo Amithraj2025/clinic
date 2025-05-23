@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -375,25 +375,7 @@ const PatientManagement: React.FC = () => {
     localStorage.setItem('backupHistory', JSON.stringify(backupHistory));
   }, [backupConfig, backupHistory]);
 
-  // Automatic backup timer
-  useEffect(() => {
-    if (!backupConfig.enabled) return;
-
-    const checkAndBackup = () => {
-      const now = Date.now();
-      const timeSinceLastBackup = now - backupConfig.lastBackup;
-      const intervalInMs = backupConfig.interval * 60 * 1000;
-
-      if (timeSinceLastBackup >= intervalInMs) {
-        performAutomaticBackup();
-      }
-    };
-
-    const timer = setInterval(checkAndBackup, 60000); // Check every minute
-    return () => clearInterval(timer);
-  }, [backupConfig, performAutomaticBackup]);
-
-  const performAutomaticBackup = () => {
+  const performAutomaticBackup = useCallback(() => {
     if (!db) return;
 
     const transaction = db.transaction(['patients'], 'readonly');
@@ -429,7 +411,25 @@ const PatientManagement: React.FC = () => {
         lastBackup: timestamp
       }));
     };
-  };
+  }, [db, backupConfig.maxBackups, backupHistory]);
+
+  // Automatic backup timer
+  useEffect(() => {
+    if (!backupConfig.enabled) return;
+
+    const checkAndBackup = () => {
+      const now = Date.now();
+      const timeSinceLastBackup = now - backupConfig.lastBackup;
+      const intervalInMs = backupConfig.interval * 60 * 1000;
+
+      if (timeSinceLastBackup >= intervalInMs) {
+        performAutomaticBackup();
+      }
+    };
+
+    const timer = setInterval(checkAndBackup, 60000); // Check every minute
+    return () => clearInterval(timer);
+  }, [backupConfig, performAutomaticBackup]);
 
   const toggleAutomaticBackup = () => {
     setBackupConfig(prev => ({
